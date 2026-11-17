@@ -43,6 +43,8 @@ enum class Str {
     StatusSaveFailed,
     DensityUnit,
     ClearDone,
+    MenuOpen,
+    StatusServiceHint,
 };
 
 void SetLanguage(Language language);

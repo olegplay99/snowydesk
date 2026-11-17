@@ -73,6 +73,8 @@ private:
     void ReactToSurfaceChanges();
     void AttachTo(Particle& particle, const SurfaceInfo& surface) const;
     float RandomFloat(float min, float max) const;
+    // Height (DIPs) of the drift that already exists near `x` on one anchor.
+    float DriftHeightAt(std::uint64_t hwnd, int edge, float x) const;
 
     Settings settings_{};
     RECT virtual_{0, 0, 1920, 1080};

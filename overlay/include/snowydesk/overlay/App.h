@@ -24,8 +24,8 @@ public:
     int Run(HINSTANCE instance);
 
 private:
-    static constexpr UINT_PTR kFrameTimerId = 1;
-    static constexpr UINT kFrameIntervalMs = 16;   // ~60 FPS
+    static constexpr UINT_PTR kFrameTimerId = 1;  // fallback timer id
+    static constexpr long long kFrameInterval100ns = 166667;  // ~60 FPS
     static constexpr UINT kPollIntervalMs = 100;  // window tracking at 10 Hz
     static constexpr UINT kTopmostIntervalMs = 1000;
     static constexpr UINT kServicePingIntervalMs = 5000;
@@ -37,7 +37,7 @@ private:
     static LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT HandleMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 
-    void OnFrameTimer();
+    void OnFrame();
     void OnCommand(int commandId);
     void OnDisplayChange();
 
@@ -53,6 +53,8 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND messageWindow_ = nullptr;
     bool classRegistered_ = false;
+    HANDLE singleInstanceMutex_ = nullptr;
+    bool duplicateInstance_ = false;
 
     OverlayHost overlay_;
     snow::SnowWorld snow_;
@@ -74,6 +76,11 @@ private:
 
     bool serviceOnline_ = false;
     bool initialized_ = false;
+    int frameCount_ = 0;
+    bool fpsLogged_ = false;
+    std::chrono::steady_clock::time_point loopStart_{};
+    double totalFrameMs_ = 0.0;
+    double totalRenderMs_ = 0.0;
 };
 
 }  // namespace snowydesk::overlay

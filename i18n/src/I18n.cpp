@@ -5,7 +5,7 @@
 namespace snowydesk::i18n {
 namespace {
 
-using Table = std::array<const wchar_t*, static_cast<std::size_t>(Str::ClearDone) + 1>;
+using Table = std::array<const wchar_t*, static_cast<std::size_t>(Str::StatusServiceHint) + 1>;
 
 constexpr Table kRussian = {
     L"SnowyDesk",                                                     // AppTitle
@@ -45,6 +45,9 @@ constexpr Table kRussian = {
     L"Не удалось сохранить настройки",                                // StatusSaveFailed
     L"частиц",                                                        // DensityUnit
     L"Снег с панели задач убран",                                     // ClearDone
+    L"Главное окно",                                                  // MenuOpen
+    L"Служба SnowyDesk не запущена, поэтому настройки не сохранились. "
+    L"Запустите SnowyDeskService.exe --install от имени администратора.", // StatusServiceHint
 };
 
 constexpr Table kEnglish = {
@@ -85,6 +88,9 @@ constexpr Table kEnglish = {
     L"Could not save settings",                                       // StatusSaveFailed
     L"particles",                                                     // DensityUnit
     L"Taskbar snow cleared",                                          // ClearDone
+    L"Main window",                                                   // MenuOpen
+    L"The SnowyDesk service is not running, so the settings were not saved. "
+    L"Run SnowyDeskService.exe --install from an elevated prompt.",     // StatusServiceHint
 };
 
 Language g_language = Language::Russian;

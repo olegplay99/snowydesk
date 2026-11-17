@@ -52,17 +52,70 @@ bool SetRunKey(bool enable) {
 int App::Run(HINSTANCE instance) {
     instance_ = instance;
     if (!Initialize()) {
-        return 1;
+        // A duplicate copy is not a failure: it just brought up the running one.
+        return duplicateInstance_ ? 0 : 1;
     }
 
+    // A high-resolution waitable timer drives the animation instead of WM_TIMER:
+    // coalesced timer messages were the reason the fall looked steppy.
+    HANDLE frameTimer = CreateWaitableTimerExW(nullptr, nullptr,
+                                               CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                               TIMER_ALL_ACCESS);
+
+    auto armFrameTimer = [frameTimer]() {
+        if (frameTimer == nullptr) return;
+        LARGE_INTEGER due{};
+        due.QuadPart = -kFrameInterval100ns;
+        SetWaitableTimer(frameTimer, &due, 0, nullptr, nullptr, FALSE);
+    };
+
+    int exitCode = 0;
     MSG message{};
-    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
-        TranslateMessage(&message);
-        DispatchMessageW(&message);
+
+    if (frameTimer == nullptr) {
+        // Fallback: classic timer pump, still animated.
+        spdlog::warn("high-resolution timer unavailable, falling back to WM_TIMER");
+        SetTimer(messageWindow_, kFrameTimerId, 16, nullptr);
+        while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        exitCode = static_cast<int>(message.wParam);
+    } else {
+        armFrameTimer();
+        for (;;) {
+            const DWORD wait =
+                MsgWaitForMultipleObjects(1, &frameTimer, FALSE, INFINITE, QS_ALLINPUT);
+            if (wait == WAIT_OBJECT_0) {
+                // Re-arm first: arming after rendering made the period
+                // (interval + frame time) instead of the interval itself.
+                armFrameTimer();
+                OnFrame();
+                continue;
+            }
+            if (wait != WAIT_OBJECT_0 + 1) {
+                exitCode = 1;
+                break;
+            }
+
+            bool quitting = false;
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                if (message.message == WM_QUIT) {
+                    exitCode = static_cast<int>(message.wParam);
+                    quitting = true;
+                    break;
+                }
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+            if (quitting) break;
+        }
+        CancelWaitableTimer(frameTimer);
+        CloseHandle(frameTimer);
     }
 
     Shutdown();
-    return 0;
+    return exitCode;
 }
 
 bool App::Initialize() {
@@ -71,6 +124,21 @@ bool App::Initialize() {
     }
     log::Init(paths::UiLogPath(), false);
     spdlog::info("SnowyDeskUI starting");
+
+    // One overlay only: a second copy paints over the first, splits the timer
+    // between them and halves the frame rate. Bring up the existing window
+    // instead of starting another instance.
+    singleInstanceMutex_ =
+        CreateMutexW(nullptr, TRUE, L"Local\\SnowyDeskUI.SingleInstance");
+    if (singleInstanceMutex_ != nullptr && GetLastError() == ERROR_ALREADY_EXISTS) {
+        spdlog::warn("another SnowyDeskUI instance is already running; focusing it");
+        if (HWND existing = FindWindowW(L"SnowyDeskMainWindow", nullptr)) {
+            ShowWindow(existing, SW_SHOWNORMAL);
+            SetForegroundWindow(existing);
+        }
+        duplicateInstance_ = true;
+        return false;
+    }
 
     // Hidden top-level window: receives tray callbacks and the frame timer.
     WNDCLASSEXW windowClass{};
@@ -122,19 +190,26 @@ bool App::Initialize() {
                                 [this](const Settings& settings) { return ApplySettings(settings); })) {
         return false;
     }
-    if (!tray_.Create(messageWindow_, [this](int command) { OnCommand(command); })) {
+    if (tray_.Create(messageWindow_, [this](int command) { OnCommand(command); })) {
+        spdlog::info("tray icon created");
+    } else {
         spdlog::warn("tray icon could not be created (explorer may be restarting)");
     }
 
     RefreshAllTexts();
 
+    // The main window is the visible entry point: the tray icon alone is easy
+    // to miss (it can live in the overflow area).
+    mainWindow_.Show();
+    spdlog::info("main window shown (visible: {})", mainWindow_.visible() ? "yes" : "no");
+
     lastFrame_ = std::chrono::steady_clock::now();
+    loopStart_ = lastFrame_;
     lastPoll_ = lastFrame_;
     lastTopmost_ = lastFrame_;
     lastPing_ = lastFrame_;
     lastSave_ = lastFrame_;
 
-    SetTimer(messageWindow_, kFrameTimerId, kFrameIntervalMs, nullptr);
     initialized_ = true;
     spdlog::info("SnowyDeskUI initialized (service online: {})", serviceOnline_ ? "yes" : "no");
     return true;
@@ -157,6 +232,10 @@ void App::Shutdown() {
     if (classRegistered_) {
         UnregisterClassW(kMessageClass, instance_);
         classRegistered_ = false;
+    }
+    if (singleInstanceMutex_ != nullptr) {
+        CloseHandle(singleInstanceMutex_);
+        singleInstanceMutex_ = nullptr;
     }
     spdlog::info("SnowyDeskUI stopped");
 }
@@ -209,8 +288,9 @@ LRESULT App::HandleMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
 
     switch (message) {
         case WM_TIMER:
+            // Only used by the fallback pump when no high-resolution timer exists.
             if (wparam == kFrameTimerId) {
-                OnFrameTimer();
+                OnFrame();
                 return 0;
             }
             break;
@@ -234,12 +314,22 @@ LRESULT App::HandleMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
     return DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
-void App::OnFrameTimer() {
+void App::OnFrame() {
     const auto now = std::chrono::steady_clock::now();
     float dt = std::chrono::duration<float>(now - lastFrame_).count();
     lastFrame_ = now;
     if (dt <= 0.0f || dt > 0.25f) {
         dt = tuning::kFrameSeconds;
+    }
+
+    // One-time diagnostic: the measured frame rate of the first five seconds.
+    ++frameCount_;
+    if (!fpsLogged_ && std::chrono::duration<double>(now - loopStart_).count() >= 5.0) {
+        fpsLogged_ = true;
+        const double seconds = std::chrono::duration<double>(now - loopStart_).count();
+        spdlog::info("render loop: {:.1f} fps, frame {:.2f} ms, render {:.2f} ms",
+                     frameCount_ / seconds, totalFrameMs_ / frameCount_,
+                     totalRenderMs_ / frameCount_);
     }
 
     // Window tracking at 10 Hz.
@@ -272,7 +362,13 @@ void App::OnFrameTimer() {
 
     snow_.Tick(dt);
     garland_.Update(dt);
+
+    const auto renderStart = std::chrono::steady_clock::now();
     overlay_.Render(snow_.particles(), garland_);
+    const double frameMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - now).count();
+    const double renderMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - renderStart).count();
+    totalFrameMs_ += frameMs;
+    totalRenderMs_ += renderMs;
 }
 
 void App::OnDisplayChange() {
@@ -375,9 +471,16 @@ bool App::ApplySettings(const Settings& settings) {
         spdlog::warn("apply_settings failed: {}", error);
         serviceOnline_ = false;
         mainWindow_.SetServiceOnline(false);
-    } else {
-        serviceOnline_ = true;
+
+        // Never report success when nothing reached the disk: the settings
+        // window stays open and the user is told what to do.
+        MessageBoxW(settingsWindow_.hwnd(), i18n::Tr(i18n::Str::StatusServiceHint),
+                    i18n::Tr(i18n::Str::StatusSaveFailed), MB_OK | MB_ICONWARNING);
+        return false;
     }
+
+    serviceOnline_ = true;
+    mainWindow_.SetServiceOnline(true);
     SaveStateToService();
     return true;
 }

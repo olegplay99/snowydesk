@@ -58,7 +58,7 @@ inline constexpr float kDensityRampSeconds = 6.0f;
 // ---------------------------------------------------------------------------
 // How many flakes a single surface (window edge or taskbar) may hold before the
 // pile spills. Higher = thicker snow caps.
-inline constexpr int kPileSpillThreshold = 55;
+inline constexpr int kPileSpillThreshold = 120;
 
 // How many flakes slide off when the threshold is crossed.
 inline constexpr int kPileSpillCount = 16;
@@ -77,6 +77,17 @@ inline constexpr float kPileSpread = 6.0f;
 inline constexpr float kLandingTolerance = 14.0f;
 
 // ---------------------------------------------------------------------------
+// Drifts (сугробы)
+// ---------------------------------------------------------------------------
+// Snow that lands close to an existing pile stacks on top of it, so dense areas
+// grow into mounds while sparse areas stay a thin dusting. The height is the
+// number of nearby flakes times kDriftGrowth, capped by kDriftMaxHeight.
+inline constexpr float kDriftRadius = 150.0f;      // DIPs, horizontal footprint
+inline constexpr float kDriftGrowth = 1.35f;       // DIPs of height per neighbour
+inline constexpr float kDriftMaxHeight = 28.0f;    // DIPs, tallest mound
+inline constexpr float kDriftSpreadJitter = 0.35f; // relative jitter, keeps them organic
+
+// ---------------------------------------------------------------------------
 // Turnover: why the scene keeps snowing instead of freezing into one line
 // ---------------------------------------------------------------------------
 // A flake that sticks to a surface eventually melts away after this long
@@ -89,7 +100,7 @@ inline constexpr float kAttachedFadeSeconds = 2.0f;
 
 // Hard limit of flakes allowed to accumulate on the virtual-screen floor, so
 // the ground line cannot eat the whole particle budget.
-inline constexpr int kGroundPileLimit = 24;
+inline constexpr int kGroundPileLimit = 70;
 
 // ---------------------------------------------------------------------------
 // Melting (setting "snow stays on windows and the taskbar" = off)

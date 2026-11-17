@@ -372,19 +372,18 @@ void OverlayHost::Canvas::DrawFrame(const std::vector<Particle>& particles,
             continue;
         }
 
-        // Faint cool rim: keeps white flakes readable on a white wallpaper.
-        brush->SetColor(D2D1::ColorF(0.55f, 0.62f, 0.75f, 0.10f * restFade));
-        target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), radius * 1.55f, radius * 1.55f),
+        // Soft white falloff: two faint concentric ellipses instead of a hard
+        // rim (a grey outline read as dirt, not as snow).
+        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.07f * restFade));
+        target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), radius * 2.4f, radius * 2.4f),
+                            brush);
+        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f * restFade));
+        target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), radius * 1.5f, radius * 1.5f),
                             brush);
 
-        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, (attached ? 0.30f : 0.17f) * restFade));
-        target->FillEllipse(
-            D2D1::Ellipse(D2D1::Point2F(x, y), radius * 2.2f, radius * (attached ? 1.8f : 2.2f)),
-            brush);
-
-        if (!attached && particle.vy > 60.0f) {
-            brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.22f));
-            const float streak = radius * (1.0f + particle.vy / 90.0f);
+        if (!attached && particle.vy > 70.0f) {
+            brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f));
+            const float streak = radius * (1.0f + particle.vy / 120.0f);
             target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), radius * 0.55f, streak), brush);
         }
 

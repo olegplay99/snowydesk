@@ -174,6 +174,7 @@ void TrayIcon::ShowContextMenu() {
     HMENU menu = CreatePopupMenu();
     if (menu == nullptr) return;
 
+    AppendMenuW(menu, MF_STRING, kCmdShowMainWindow, i18n::Tr(i18n::Str::MenuOpen));
     AppendMenuW(menu, MF_STRING, kCmdSettings, i18n::Tr(i18n::Str::MenuSettings));
     AppendMenuW(menu, MF_STRING, kCmdClearSnow, i18n::Tr(i18n::Str::MenuClearSnow));
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

@@ -256,6 +256,19 @@ void SnowWorld::UpdateAttached(Particle& particle, float dt) {
     particle.age += dt;
 }
 
+float SnowWorld::DriftHeightAt(std::uint64_t hwnd, int edge, float x) const {
+    int neighbours = 0;
+    for (const auto& other : particles_) {
+        if (other.state == ParticleState::Falling) continue;
+        if (other.anchor.hwnd != hwnd || other.anchor.edge != edge) continue;
+        if (std::abs(other.baseX - x) <= tuning::kDriftRadius) {
+            ++neighbours;
+        }
+    }
+    const float height = static_cast<float>(neighbours) * tuning::kDriftGrowth;
+    return std::min(height, tuning::kDriftMaxHeight);
+}
+
 bool SnowWorld::TryLand(Particle& particle) const {
     const float radius = particle.size;
     const float centerX = particle.baseX;
@@ -284,6 +297,11 @@ bool SnowWorld::TryLand(Particle& particle) const {
         if (centerX < left - 4.0f || centerX > right + 4.0f) continue;
 
         const float top = static_cast<float>(surface.rect.top);
+        // A window flush with the top of the screen cannot hold visible snow:
+        // its drift would grow above the display. Let those flakes fall on.
+        if (top <= static_cast<float>(virtual_.top) + 2.0f) {
+            continue;
+        }
         if (centerY + radius >= top && centerY - radius <= top + tuning::kLandingTolerance) {
             if (sticks) {
                 AttachTo(particle, surface);
@@ -301,8 +319,11 @@ bool SnowWorld::TryLand(Particle& particle) const {
                 particle.state = ParticleState::OnBottomEdge;
                 particle.anchor.hwnd = surface.hwnd;
                 particle.anchor.edge = 2;
-                particle.baseY = bottom + particle.size * 0.5f;
+                const float shelf = DriftHeightAt(surface.hwnd, 2, particle.baseX);
+                particle.baseY = bottom + shelf * 0.5f + particle.size * 0.5f;
                 particle.vy = 0.0f;
+                particle.lifetime = particle.age + RandomFloat(tuning::kAttachedLifetimeMin,
+                                                              tuning::kAttachedLifetimeMax);
                 return true;
             }
             return true;
@@ -320,10 +341,15 @@ bool SnowWorld::TryLand(Particle& particle) const {
                            other.anchor.hwnd == 0 && other.anchor.edge == 2;
                 });
             if (static_cast<int>(onGround) < tuning::kGroundPileLimit) {
+                const float drift =
+                    DriftHeightAt(0, 2, particle.baseX) *
+                    (1.0f + RandomFloat(-tuning::kDriftSpreadJitter,
+                                        tuning::kDriftSpreadJitter));
                 particle.state = ParticleState::OnBottomEdge;
                 particle.anchor.hwnd = 0;
                 particle.anchor.edge = 2;
-                particle.baseY = screenBottom - particle.size * 0.5f;
+                particle.baseY = screenBottom - std::max(0.0f, drift) -
+                                 particle.size * 0.5f + RandomFloat(0.0f, tuning::kPileJitter);
                 particle.vy = 0.0f;
                 particle.lifetime = particle.age + RandomFloat(tuning::kAttachedLifetimeMin,
                                                               tuning::kAttachedLifetimeMax);
@@ -357,9 +383,15 @@ void SnowWorld::AttachTo(Particle& particle, const SurfaceInfo& surface) const {
     particle.anchor.hwnd = surface.hwnd;
     particle.anchor.edge = surface.kind == 3 ? 3 : 1;
     particle.vy = 0.0f;
-    particle.baseY = static_cast<float>(surface.rect.top) - particle.size * 0.45f +
-                     RandomFloat(0.0f, tuning::kPileJitter);
-    particle.baseX += RandomFloat(-tuning::kPileSpread, tuning::kPileSpread);
+
+    // Stack on top of the drift that already exists here: dense landing zones
+    // grow into mounds, empty ones stay a thin dusting.
+    const float drift = DriftHeightAt(particle.anchor.hwnd, particle.anchor.edge, particle.baseX) *
+                        (1.0f + RandomFloat(-tuning::kDriftSpreadJitter,
+                                            tuning::kDriftSpreadJitter));
+    particle.baseY = static_cast<float>(surface.rect.top) - std::max(0.0f, drift) -
+                     particle.size * 0.45f + RandomFloat(0.0f, tuning::kPileJitter);
+    particle.baseX += RandomFloat(-tuning::kPileSpread, tuning::kPileSpread) * 0.35f;
     particle.x = particle.baseX;
     particle.y = particle.baseY;
 }
@@ -521,8 +553,11 @@ void SnowWorld::ReactToSurfaceChanges() {
         }
 
         if (particle.anchor.hwnd == 0) {
-            // Pile on the virtual screen bottom: keep it aligned with the bottom.
-            particle.baseY = static_cast<float>(virtual_.bottom) - particle.size * 0.5f;
+            // Pile on the virtual screen bottom: keep it aligned with the bottom
+            // without flattening the drift it has grown.
+            const float drift = DriftHeightAt(0, 2, particle.baseX);
+            particle.baseY = static_cast<float>(virtual_.bottom) - drift -
+                             particle.size * 0.5f;
             continue;
         }
 
