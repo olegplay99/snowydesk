@@ -92,6 +92,7 @@ nlohmann::json ParticleToJson(const Particle& particle) {
         {"swayAmplitude", particle.swayAmplitude},
         {"age", particle.age},
         {"meltTime", particle.meltTime},
+        {"lifetime", particle.lifetime},
         {"state", static_cast<int>(particle.state)},
         {"anchorHwnd", particle.anchor.hwnd},
         {"anchorEdge", particle.anchor.edge},
@@ -114,6 +115,7 @@ Particle ParticleFromJson(const nlohmann::json& value) {
     particle.swayAmplitude = FiniteOr(GetFloat(value, "swayAmplitude", 0.0f), 0.0f);
     particle.age = FiniteOr(GetFloat(value, "age", 0.0f), 0.0f);
     particle.meltTime = FiniteOr(GetFloat(value, "meltTime", -1.0f), -1.0f);
+    particle.lifetime = FiniteOr(GetFloat(value, "lifetime", 0.0f), 0.0f);
     particle.state = static_cast<ParticleState>(GetEnum(value, "state", 0, 3));
     particle.anchor.hwnd = static_cast<std::uint64_t>(GetInt64(value, "anchorHwnd", 0));
     particle.anchor.edge = GetEnum(value, "anchorEdge", 0, 3);

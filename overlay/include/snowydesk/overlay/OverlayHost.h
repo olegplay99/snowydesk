@@ -81,7 +81,7 @@ private:
         ID2D1DCRenderTarget* target = nullptr;
         ID2D1SolidColorBrush* brush = nullptr;
 
-        bool CreateResources(ID2D1Factory* factory, const RECT& monitorRect, unsigned int dpi,
+        bool CreateResources(ID2D1Factory* factory, const RECT& monitorRect, unsigned int monitorDpi,
                              std::string& error);
         void ReleaseResources();
         void DrawFrame(const std::vector<Particle>& particles, const garland::Garland& garland,

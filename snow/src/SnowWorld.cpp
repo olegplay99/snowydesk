@@ -104,6 +104,12 @@ void SnowWorld::AdoptState(const AppState& state) {
             // Anchors are per-session. If the HWND is gone the next poll turns
             // this flake into a falling one (see ReactToSurfaceChanges).
             particle.vy = 0.0f;
+            // Older state files have no lifetime: give the pile a staggered
+            // expiry so a restored scene keeps snowing too.
+            if (particle.lifetime <= 0.0f) {
+                particle.lifetime = particle.age + RandomFloat(tuning::kAttachedLifetimeMin,
+                                                              tuning::kAttachedLifetimeMax);
+            }
         } else {
             particle.vy = std::max(particle.vy, tuning::kRestoreFallBoost);
         }
@@ -161,8 +167,13 @@ void SnowWorld::Tick(float dt) {
     particles_.erase(
         std::remove_if(particles_.begin(), particles_.end(),
                        [bottom](const Particle& particle) {
-                           return particle.state == ParticleState::Falling &&
-                                  particle.baseY > bottom;
+                           if (particle.state == ParticleState::Falling) {
+                               return particle.baseY > bottom;
+                           }
+                           // A resting flake melts away at the end of its
+                           // lifetime; the density controller refills the sky.
+                           return particle.lifetime > 0.0f &&
+                                  particle.age > particle.lifetime;
                        }),
         particles_.end());
 }
@@ -298,22 +309,28 @@ bool SnowWorld::TryLand(Particle& particle) const {
         }
     }
 
-    // Virtual screen bottom: a soft pile that spills off-screen when full.
+    // Virtual screen bottom: a thin snow line, capped so it cannot swallow the
+    // whole particle budget (the rest falls off-screen and is recycled).
     const float screenBottom = static_cast<float>(virtual_.bottom);
     if (centerY + radius >= screenBottom) {
-        SurfaceInfo ground;
-        ground.hwnd = 0;
-        ground.kind = 0;
-        ground.rect = virtual_;
         if (sticks) {
-            particle.state = ParticleState::OnBottomEdge;
-            particle.anchor.hwnd = 0;
-            particle.anchor.edge = 2;
-            particle.baseY = screenBottom - particle.size * 0.5f;
-            particle.vy = 0.0f;
-            (void)ground;
-            return true;
+            const auto onGround = std::count_if(
+                particles_.begin(), particles_.end(), [](const Particle& other) {
+                    return other.state == ParticleState::OnBottomEdge &&
+                           other.anchor.hwnd == 0 && other.anchor.edge == 2;
+                });
+            if (static_cast<int>(onGround) < tuning::kGroundPileLimit) {
+                particle.state = ParticleState::OnBottomEdge;
+                particle.anchor.hwnd = 0;
+                particle.anchor.edge = 2;
+                particle.baseY = screenBottom - particle.size * 0.5f;
+                particle.vy = 0.0f;
+                particle.lifetime = particle.age + RandomFloat(tuning::kAttachedLifetimeMin,
+                                                              tuning::kAttachedLifetimeMax);
+                return true;
+            }
         }
+        return false;
     }
 
     return false;
@@ -334,6 +351,9 @@ void SnowWorld::AttachTo(Particle& particle, const SurfaceInfo& surface) const {
     }
 
     particle.state = surface.kind == 3 ? ParticleState::OnTaskbar : ParticleState::OnTopEdge;
+    // Rest for a while, then melt away so the sky gets refilled.
+    particle.lifetime =
+        particle.age + RandomFloat(tuning::kAttachedLifetimeMin, tuning::kAttachedLifetimeMax);
     particle.anchor.hwnd = surface.hwnd;
     particle.anchor.edge = surface.kind == 3 ? 3 : 1;
     particle.vy = 0.0f;
@@ -357,10 +377,12 @@ void SnowWorld::ApplyDensity(float dt) {
 
     densityRamp_ = std::min(densityRamp_ + dt, tuning::kDensityRampSeconds);
 
-    const auto count = static_cast<int>(particles_.size());
-    if (count < target) {
+    // Density is the number of flakes in the air. Piles are capped separately
+    // (spill threshold + lifetime), so a full taskbar can never stop the snow.
+    const int falling = static_cast<int>(countInState(ParticleState::Falling));
+    if (falling < target) {
         spawnAccumulator_ += dt;
-        int remaining = target - count;
+        int remaining = target - falling;
         while (spawnAccumulator_ >= tuning::kSpawnIntervalSeconds && remaining > 0 &&
                particles_.size() < static_cast<std::size_t>(tuning::kMaxParticles)) {
             spawnAccumulator_ -= tuning::kSpawnIntervalSeconds;
@@ -370,18 +392,19 @@ void SnowWorld::ApplyDensity(float dt) {
         return;
     }
 
-    // Too many flakes (density lowered): remove falling ones first, then melt piles.
+    // Density lowered: remove falling flakes from the newest ones.
     spawnAccumulator_ = 0.0f;
-    while (static_cast<int>(particles_.size()) > target) {
+    int surplus = falling - target;
+    while (surplus > 0) {
         const auto it = std::find_if(particles_.rbegin(), particles_.rend(),
                                      [](const Particle& particle) {
                                          return particle.state == ParticleState::Falling;
                                      });
-        if (it != particles_.rend()) {
-            particles_.erase(std::next(it).base());
-        } else {
-            particles_.pop_back();
+        if (it == particles_.rend()) {
+            break;
         }
+        particles_.erase(std::next(it).base());
+        --surplus;
     }
 }
 

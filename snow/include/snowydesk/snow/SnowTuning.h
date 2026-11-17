@@ -27,8 +27,8 @@ inline constexpr float kMaxStepSeconds = 0.05f;
 inline constexpr int kMaxParticles = 1200;
 
 // Gravity and terminal velocity, in DIPs per second.
-inline constexpr float kGravity = 130.0f;
-inline constexpr float kTerminalVelocity = 150.0f;
+inline constexpr float kGravity = 85.0f;
+inline constexpr float kTerminalVelocity = 105.0f;
 
 // Flake radius range in DIPs.
 inline constexpr float kMinRadius = 1.1f;
@@ -75,6 +75,21 @@ inline constexpr float kPileSpread = 6.0f;
 
 // A flake landing within this many DIPs above an edge sticks to it.
 inline constexpr float kLandingTolerance = 14.0f;
+
+// ---------------------------------------------------------------------------
+// Turnover: why the scene keeps snowing instead of freezing into one line
+// ---------------------------------------------------------------------------
+// A flake that sticks to a surface eventually melts away after this long
+// (randomized per flake), which keeps a steady stream of falling snow alive.
+inline constexpr float kAttachedLifetimeMin = 9.0f;
+inline constexpr float kAttachedLifetimeMax = 26.0f;
+
+// Seconds before the end of its life where a resting flake fades out.
+inline constexpr float kAttachedFadeSeconds = 2.0f;
+
+// Hard limit of flakes allowed to accumulate on the virtual-screen floor, so
+// the ground line cannot eat the whole particle budget.
+inline constexpr int kGroundPileLimit = 24;
 
 // ---------------------------------------------------------------------------
 // Melting (setting "snow stays on windows and the taskbar" = off)

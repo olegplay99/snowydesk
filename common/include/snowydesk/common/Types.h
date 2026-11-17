@@ -61,6 +61,7 @@ struct Particle {
     float swayAmplitude = 0.0f;  // DIPs
     float age = 0.0f;         // seconds alive
     float meltTime = 0.0f;    // seconds spent melting, -1 = not melting
+    float lifetime = 0.0f;    // seconds an attached flake may rest; 0 = unlimited
     ParticleState state = ParticleState::Falling;
     WindowAnchor anchor;
 };

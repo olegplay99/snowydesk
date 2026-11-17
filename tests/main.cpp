@@ -279,6 +279,40 @@ void TestSnowWorld() {
     CHECK(world.particles().empty());
 }
 
+// Regression: density is the number of flakes in the air, so a scene where
+// every flake already sticks to a surface must start snowing again instead of
+// looking frozen (this used to stop all motion).
+void TestSnowKeepsFalling() {
+    snowydesk::snow::SnowWorld world;
+    world.SetVirtualRect(RECT{0, 0, 1920, 1080});
+
+    snowydesk::Settings settings;
+    settings.density = 30;
+    settings.snowSticks = true;
+    world.SetSettings(settings);
+
+    snowydesk::AppState frozen;
+    for (int i = 0; i < 30; ++i) {
+        snowydesk::Particle particle;
+        particle.state = snowydesk::ParticleState::OnTaskbar;
+        particle.anchor.edge = 3;
+        particle.x = 100.0f + static_cast<float>(i) * 20.0f;
+        particle.y = 1000.0f;
+        particle.baseX = particle.x;
+        particle.baseY = particle.y;
+        frozen.particles.push_back(particle);
+    }
+
+    world.AdoptState(frozen);
+    CHECK(world.taskbarPileCount() == 30);
+
+    for (int frame = 0; frame < 30; ++frame) {
+        world.Tick(1.0f / 60.0f);
+    }
+
+    CHECK(world.countInState(snowydesk::ParticleState::Falling) > 0);
+}
+
 }  // namespace
 
 int main() {
@@ -290,6 +324,7 @@ int main() {
     TestProtocolRoundtrip();
     TestStateStore();
     TestSnowWorld();
+    TestSnowKeepsFalling();
 
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

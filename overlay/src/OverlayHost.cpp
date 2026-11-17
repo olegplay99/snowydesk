@@ -7,6 +7,7 @@
 #include <cmath>
 
 #include "snowydesk/common/Log.h"
+#include "snowydesk/snow/SnowTuning.h"
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "d2d1.lib")
@@ -201,7 +202,7 @@ void OverlayHost::DestroyWindows() {
 }
 
 bool OverlayHost::Canvas::CreateResources(ID2D1Factory* factory, const RECT& monitorRect,
-                                          unsigned int dpi, std::string& error) {
+                                          unsigned int monitorDpi, std::string& error) {
     const int width = monitorRect.right - monitorRect.left;
     const int height = monitorRect.bottom - monitorRect.top;
 
@@ -256,7 +257,7 @@ bool OverlayHost::Canvas::CreateResources(ID2D1Factory* factory, const RECT& mon
         return false;
     }
 
-    (void)dpi;
+    (void)monitorDpi;
     return true;
 }
 
@@ -358,7 +359,25 @@ void OverlayHost::Canvas::DrawFrame(const std::vector<Particle>& particles,
         const bool attached = particle.state != ParticleState::Falling;
         const float radius = std::max(0.7f, particle.size * scale) * (attached ? 1.35f : 1.0f);
 
-        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, attached ? 0.30f : 0.17f));
+        // A resting flake fades out during the last seconds of its lifetime, so
+        // piles thin out instead of popping.
+        float restFade = 1.0f;
+        if (attached && particle.lifetime > 0.0f) {
+            const float remaining = particle.lifetime - particle.age;
+            if (remaining < tuning::kAttachedFadeSeconds) {
+                restFade = std::clamp(remaining / tuning::kAttachedFadeSeconds, 0.0f, 1.0f);
+            }
+        }
+        if (restFade <= 0.0f) {
+            continue;
+        }
+
+        // Faint cool rim: keeps white flakes readable on a white wallpaper.
+        brush->SetColor(D2D1::ColorF(0.55f, 0.62f, 0.75f, 0.10f * restFade));
+        target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), radius * 1.55f, radius * 1.55f),
+                            brush);
+
+        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, (attached ? 0.30f : 0.17f) * restFade));
         target->FillEllipse(
             D2D1::Ellipse(D2D1::Point2F(x, y), radius * 2.2f, radius * (attached ? 1.8f : 2.2f)),
             brush);
@@ -369,7 +388,8 @@ void OverlayHost::Canvas::DrawFrame(const std::vector<Particle>& particles,
             target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), radius * 0.55f, streak), brush);
         }
 
-        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, kSnowAlpha));
+        brush->SetColor(
+            D2D1::ColorF(0.97f, 0.985f, 1.0f, kSnowAlpha * restFade));
         target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), radius * 0.95f, radius * 0.95f),
                             brush);
         ++drawn;
